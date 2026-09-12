@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from models import User, Url
 from db_models import User as UserDB, Url as UrlDB, create_db_and_tables, SessionDep
+from sqlmodel import select
 import uvicorn as uv
 
 app = FastAPI()
@@ -16,12 +17,14 @@ def read_root():
 
 @app.post("/users")
 def create_user(user: User, session: SessionDep):
+    user_db = session.exec(select(UserDB).where(UserDB.email == user.email)).first()
+    if user_db:
+        return {"message": "Email already exists"}
     db_user = UserDB(name=user.name,email=user.email)
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
-    return {"message": "User created successfully",
-    "user": db_user}
+    return {"message": "User created successfully"}
 
 
 @app.post("/urls")
