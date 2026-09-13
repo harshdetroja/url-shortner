@@ -11,10 +11,11 @@ class User(SQLModel, table=True):
     created_at: date = Field(default_factory=date.today)
 
 class Url(SQLModel, table=True):
-    id: str = Field(nullable=False, primary_key=True)
+    id: int|None = Field(default=None, unique=True, primary_key=True)
     original_url: str = Field(nullable=False)
-    short_code: str = Field(nullable=False, unique=True)
+    short_code: str|None = Field(default=None, unique=True)
     expire_at: date = Field(default=None)
+    custom_alias: str|None = Field(default=None)
     click_count: int = Field(default=0)
     created_at: date = Field(default_factory=date.today)
     user_id: str = Field(nullable=False, foreign_key="user.id")

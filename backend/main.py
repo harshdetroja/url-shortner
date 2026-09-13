@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from models import User, Url
 from db_models import User as UserDB, Url as UrlDB, create_db_and_tables, SessionDep
+from base_62 import encode_base62
 from sqlmodel import select
 import uvicorn as uv
 
@@ -24,20 +25,33 @@ def create_user(user: User, session: SessionDep):
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
-    return {"message": "User created successfully"}
+    return {"message": "User created successfully","user": db_user}
 
 
-@app.post("/urls")
-def create_url(url: Url, session: SessionDep):
-    db_url = UrlDB(original_url=url.original_url,expire_at=url.expire_at)
+@app.post("/urls/{user_id}")
+def create_url(url: Url, user_id: int, session: SessionDep):
+    if url.custom_alias:
+        url_db = session.exec(select(UrlDB).where(UrlDB.custom_alias == url.custom_alias)).first()
+
+        if url_db:
+            return {"message" : "Custom alias already exist"}
+    
+    db_url = UrlDB(original_url=url.original_url,custom_alias=url.custom_alias,expire_at=url.expire_at,user_id=user_id)
     session.add(db_url)
+    session.flush()
+
+    if url.custom_alias:
+        db_url.short_code = url.custom_alias
+    else:
+        db_url.short_code = encode_base62(db_url.id+100000)
     session.commit()
     session.refresh(db_url)
+    short_url = f"http://127.0.0.1:8000/{db_url.short_code}"
     return {"message": "Url created successfully",
-    "url": db_url}
+    "url": short_url}
 
 @app.get("/urls/{user_id}")
-def get_url(user_id: str, session: SessionDep):
+def get_url(user_id: int, session: SessionDep):
     urls = session.exec(select(UrlDB).where(UrlDB.user_id == user_id)).all()
     if not urls:
         raise HTTPException(status_code=404, detail="Urls not found")
@@ -65,7 +79,7 @@ def delete_url(short_code: str, session: SessionDep):
 
 @app.get("/{short_code}")
 def redirect_to_url(short_code: str, session: SessionDep):
-    url = session.exec(Select(UrlDB).where(UrlDB.short_code == short_code)).first()
+    url = session.exec(select(UrlDB).where(UrlDB.short_code == short_code)).first()
     if not url:
         raise HTTPException(status_code=404,detail="url not found")
     

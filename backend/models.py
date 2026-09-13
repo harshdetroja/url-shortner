@@ -9,4 +9,5 @@ class User(BaseModel):
 class Url(BaseModel):
 
     original_url: str
+    custom_alias: str
     expire_at: date
