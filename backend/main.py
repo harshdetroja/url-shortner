@@ -4,6 +4,7 @@ from models import User, Url
 from db_models import User as UserDB, Url as UrlDB, create_db_and_tables, SessionDep
 from base_62 import encode_base62
 from sqlmodel import select
+from datetime import date
 import uvicorn as uv
 
 app = FastAPI()
@@ -34,7 +35,7 @@ def create_url(url: Url, user_id: int, session: SessionDep):
         url_db = session.exec(select(UrlDB).where(UrlDB.custom_alias == url.custom_alias)).first()
 
         if url_db:
-            return {"message" : "Custom alias already exist"}
+            return HTTPException(status_code=409,detail="Custom alias already taken")
     
     db_url = UrlDB(original_url=url.original_url,custom_alias=url.custom_alias,expire_at=url.expire_at,user_id=user_id)
     session.add(db_url)
@@ -82,6 +83,10 @@ def redirect_to_url(short_code: str, session: SessionDep):
     url = session.exec(select(UrlDB).where(UrlDB.short_code == short_code)).first()
     if not url:
         raise HTTPException(status_code=404,detail="url not found")
+    
+    if url.expire_at <= date.today():
+        delete_url(short_code,session)
+        raise HTTPException(status_code=404,detail="url expired")
     
     url.click_count += 1
     session.add(url)
