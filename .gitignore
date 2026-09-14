@@ -1,4 +1,4 @@
 backend/__pycache__/
-backend/url_shortner.db
+backend/url_shortener.db
 
 .env

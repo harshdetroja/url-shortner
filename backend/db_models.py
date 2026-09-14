@@ -8,6 +8,7 @@ class User(SQLModel, table=True):
     id: int | None = Field(unique=True,default=None, primary_key=True)
     name: str = Field(default=None)
     email: str = Field(unique=True, nullable=False)
+    password: str = Field(nullable=False)
     created_at: date = Field(default_factory=date.today)
 
 class Url(SQLModel, table=True):

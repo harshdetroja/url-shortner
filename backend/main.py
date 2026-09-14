@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
-from models import User, Url
+from models import UserCreate, UserLogin, Url
 from db_models import User as UserDB, Url as UrlDB, create_db_and_tables, SessionDep
 from base_62 import encode_base62
 from sqlmodel import select
@@ -17,16 +17,27 @@ def on_startup():
 def read_root():
     return {"Hello": "World"}
 
-@app.post("/users")
-def create_user(user: User, session: SessionDep):
+@app.post("/users/signup")
+def create_user(user: UserCreate, session: SessionDep):
     user_db = session.exec(select(UserDB).where(UserDB.email == user.email)).first()
     if user_db:
         return {"message": "Email already exists"}
-    db_user = UserDB(name=user.name,email=user.email)
+    db_user = UserDB(name=user.name,email=user.email,password=user.password)
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
     return {"message": "User created successfully","user": db_user}
+
+@app.post("/users/login")
+def login_user(user:UserLogin, session: SessionDep):
+    user_db = session.exec(select(UserDB).where(UserDB.email == user.email)).first()
+    if not user_db:
+        return HTTPException(status_code=404,detail="User doesn't exists.")
+    
+    if user_db.password != user.password:
+        return {"message":"Incorrect password entered."}
+    
+    return {"message" : "User successfuly logged in.","user_id":user_db.id}
 
 
 @app.post("/urls/{user_id}")
