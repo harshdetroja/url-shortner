@@ -11,7 +11,8 @@ from utils import (
     verify_pwd,
     create_access_token,
     create_refresh_token,
-    verify_user
+    verify_user,
+    verify_refresh_request
 )
 import uvicorn as uv
 
@@ -51,6 +52,13 @@ def login_user(session: SessionDep, form_data: OAuth2PasswordRequestForm = Depen
     return {
         "access_token" : create_access_token(user_db.id),
         "refresh_token" : create_refresh_token(user_db.id)
+    }
+
+@app.get("/refresh")
+def get_new_access_token(session: SessionDep, user: str = Depends(verify_refresh_request)):
+    
+    return {
+        "access_token" : create_access_token(user.id),
     }
 
 

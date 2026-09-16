@@ -56,6 +56,14 @@ def decode_token(token: str):
         return payload
     except JWTError:
         return None
+
+def decode_refresh_token(token: str):
+
+    try:
+        payload = jwt.decode(token,JWT_REFRESH_SECRET_KEY,ALGORITHM)
+        return payload
+    except JWTError:
+        return None
     
 class JWTBearer(HTTPBearer):
 
@@ -71,30 +79,19 @@ class JWTBearer(HTTPBearer):
             if not credentials.scheme == "Bearer":
                 raise HTTPException(status_code=403,detail="Invalid authentication scheme.")
             token = credentials.credentials
-            if not self.verify_jwt(token):
-                raise HTTPException(status_code=403,detail="Invalid token or expired token.")
             return token
         else:
             raise HTTPException(status_code=403,detail="Invalid authorization code")
-    
-    def verify_jwt(self, token: str) -> bool:
 
-        try:
-            payload = decode_token(token)
-            return True 
-        except ExpiresSignatureError:
-            return False
-        except JWTError:
-            return False
 
-        
-def verify_user(session: SessionDep, token: str = Depends(JWTBearer())):
+def verify_refresh_request(session: SessionDep, token: str = Depends(JWTBearer())):
 
-    payload = decode_token(token)
+    payload = decode_refresh_token(token)
+
 
     if not payload:
         raise HTTPException(
-            status_code=status.HTTP_401_AUTHORIZED,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token or expired token"
         )
     
@@ -102,7 +99,34 @@ def verify_user(session: SessionDep, token: str = Depends(JWTBearer())):
 
     if not user_id:
         raise HTTPException(
-            status_code=status.HTTP_401_AUTHORIZED,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token or expired token"
+        )
+    
+    user = session.exec(select(UserDB).where(UserDB.id == user_id)).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
+
+def verify_user(session: SessionDep, token: str = Depends(JWTBearer())):
+
+    payload = decode_token(token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token or expired token"
+        )
+    
+    user_id = payload.get("sub")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token or expired token"
         )
     
