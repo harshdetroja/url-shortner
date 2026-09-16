@@ -32,7 +32,7 @@ def read_root():
 def create_user(user: UserCreate, session: SessionDep):
     user_db = session.exec(select(UserDB).where(UserDB.email == user.email)).first()
     if user_db:
-        return {"message": "Email already exists"}
+        raise HTTPException(status_code=400,detail="Email already exists.")
     hashed_password = get_hashed_pwd(user.password)
     db_user = UserDB(name=user.name,email=user.email,password=hashed_password)
     session.add(db_user)
@@ -98,6 +98,8 @@ def get_click_count(short_code: str, session: SessionDep, user: str = Depends(ve
     url = session.exec(select(UrlDB).where(UrlDB.short_code == short_code)).first()
     if not url:
         raise HTTPException(status_code=404, detail="Url not found")
+    if user.id != url.user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized access")
     click_count = url.click_count
     return {"message": "Click count retrieved successfully",
     "short_code": short_code, "click_count": click_count}
@@ -107,6 +109,8 @@ def delete_url(short_code: str, session: SessionDep, user: str = Depends(verify_
     url = session.exec(select(UrlDB).where(UrlDB.short_code == short_code)).first()
     if not url:
         raise HTTPException(status_code=404,detail="url not found")
+    if user.id != url.user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized access")
     session.delete(url)
     session.commit()
     return {"message": "Url deleted successfully",

@@ -23,7 +23,6 @@ JWT_REFRESH_SECRET_KEY = os.getenv('JWT_REFRESH_SECRET_KEY')
 pwd_context = PasswordHash.recommended()
 
 def get_hashed_pwd(password: str) -> str:
-    print(f"pwd - {password}")
     return pwd_context.hash(password)
 
 def verify_pwd(password: str, hashed_password: str) -> bool:
