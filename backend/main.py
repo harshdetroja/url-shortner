@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.responses import RedirectResponse
 from models import UserCreate, UserLogin, Url
@@ -10,7 +10,8 @@ from utils import (
     get_hashed_pwd,
     verify_pwd,
     create_access_token,
-    create_refresh_token
+    create_refresh_token,
+    verify_user
 )
 import uvicorn as uv
 
@@ -39,29 +40,29 @@ def create_user(user: UserCreate, session: SessionDep):
     return {"message": "User created successfully","user": db_user}
 
 @app.post("/users/login")
-def login_user(form_data: OAuth2PasswordRequestForm = Depends(), session: SessionDep):
-    user_db = session.exec(select(UserDB).where(UserDB.email == form_data.email)).first()
+def login_user(session: SessionDep, form_data: OAuth2PasswordRequestForm = Depends()):
+    user_db = session.exec(select(UserDB).where(UserDB.email == form_data.username)).first()
     if not user_db:
-        return HTTPException(status_code=404,detail="User doesn't exists.")
-    hashed_password = user_db['password']
-    if not verify_pwd(form_data['password'],hashed_password):
-        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Incorrect email or password.")
+        raise HTTPException(status_code=404,detail="User doesn't exists.")
+    hashed_password = user_db.password
+    if not verify_pwd(form_data.password,hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Incorrect email or password.")
     
     return {
-        "access_token" : create_access_token(user_db['email']),
-        "refresh_token" : create_refresh_token(user_db['email'])
+        "access_token" : create_access_token(user_db.id),
+        "refresh_token" : create_refresh_token(user_db.id)
     }
 
 
-@app.post("/urls/{user_id}")
-def create_url(url: Url, user_id: int, session: SessionDep):
+@app.post("/urls")
+def create_url(url: Url, session: SessionDep, user: str = Depends(verify_user)):
     if url.custom_alias:
         url_db = session.exec(select(UrlDB).where(UrlDB.custom_alias == url.custom_alias)).first()
 
         if url_db:
-            return HTTPException(status_code=409,detail="Custom alias already taken")
+            raise HTTPException(status_code=409,detail="Custom alias already taken")
     
-    db_url = UrlDB(original_url=url.original_url,custom_alias=url.custom_alias,expire_at=url.expire_at,user_id=user_id)
+    db_url = UrlDB(original_url=url.original_url,custom_alias=url.custom_alias,expire_at=url.expire_at,user_id=user.id)
     session.add(db_url)
     session.flush()
 
@@ -75,28 +76,29 @@ def create_url(url: Url, user_id: int, session: SessionDep):
     return {"message": "Url created successfully",
     "url": short_url}
 
-@app.get("/urls/{user_id}")
-def get_url(user_id: int, session: SessionDep):
-    urls = session.exec(select(UrlDB).where(UrlDB.user_id == user_id)).all()
+@app.get("/urls")
+def get_url(session: SessionDep, user: str = Depends(verify_user)):
+    print(f"user - {user}")
+    urls = session.exec(select(UrlDB).where(UrlDB.user_id == user.id)).all()
     if not urls:
-        return HTTPException(status_code=404, detail="Urls not found")
+        raise HTTPException(status_code=404, detail="Urls not found")
     return {"message": "Url retrieved successfully",
     "urls": urls}
 
 @app.get("/urls/{short_code}/stats")
-def get_click_count(short_code: str, session: SessionDep):
+def get_click_count(short_code: str, session: SessionDep, user: str = Depends(verify_user)):
     url = session.exec(select(UrlDB).where(UrlDB.short_code == short_code)).first()
     if not url:
-        return HTTPException(status_code=404, detail="Url not found")
+        raise HTTPException(status_code=404, detail="Url not found")
     click_count = url.click_count
     return {"message": "Click count retrieved successfully",
     "short_code": short_code, "click_count": click_count}
 
 @app.delete("/urls/{short_code}")
-def delete_url(short_code: str, session: SessionDep):
+def delete_url(short_code: str, session: SessionDep, user: str = Depends(verify_user)):
     url = session.exec(select(UrlDB).where(UrlDB.short_code == short_code)).first()
     if not url:
-        return HTTPException(status_code=404,detail="url not found")
+        raise HTTPException(status_code=404,detail="url not found")
     session.delete(url)
     session.commit()
     return {"message": "Url deleted successfully",
@@ -106,11 +108,11 @@ def delete_url(short_code: str, session: SessionDep):
 def redirect_to_url(short_code: str, session: SessionDep):
     url = session.exec(select(UrlDB).where(UrlDB.short_code == short_code)).first()
     if not url:
-        return HTTPException(status_code=404,detail="url not found")
+        raise HTTPException(status_code=404,detail="url not found")
     
     if url.expire_at <= date.today():
         delete_url(short_code,session)
-        return HTTPException(status_code=404,detail="url expired")
+        raise HTTPException(status_code=404,detail="url expired")
     
     url.click_count += 1
     session.add(url)

@@ -1,19 +1,29 @@
-from passlib.context import CryptContext
-from jose import jwt
-import os 
+import os
 from datetime import datetime, timedelta
-from typing import Union, Any
+from typing import Union, Any, Optional
 
+from fastapi import HTTPException, status, Depends, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt
+from jose.exceptions import JWTError, ExpiredSignatureError
+from pwdlib import PasswordHash
+from sqlmodel import select
+from dotenv import load_dotenv
 
-ACCESS_TOKEN_EXPIRE_MINUTES = os.environ['ACCESS_TOKEN_EXPIRE_MINUTES']  # 30 minutes
-REFRESH_TOKEN_EXPIRE_MINUTES = os.environ['REFRESH_TOKEN_EXPIRE_MINUTES'] # 7 days
-ALGORITHM = os.environ['ALGORITHM']
-JWT_SECRET_KEY = os.environ['JWT_SECRET_KEY']   # should be kept secret
-JWT_REFRESH_SECRET_KEY = os.environ['JWT_REFRESH_SECRET_KEY']    # should be kept secret
+from db_models import SessionDep, User as UserDB
 
-pwd_context = CryptContext(schemes=["bycrypt"],deprecated=auto)
+load_dotenv()
+
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 30))
+REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv('REFRESH_TOKEN_EXPIRE_MINUTES', 10080))
+ALGORITHM = os.getenv('ALGORITHM', 'HS256')
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
+JWT_REFRESH_SECRET_KEY = os.getenv('JWT_REFRESH_SECRET_KEY')
+
+pwd_context = PasswordHash.recommended()
 
 def get_hashed_pwd(password: str) -> str:
+    print(f"pwd - {password}")
     return pwd_context.hash(password)
 
 def verify_pwd(password: str, hashed_password: str) -> bool:
@@ -21,20 +31,86 @@ def verify_pwd(password: str, hashed_password: str) -> bool:
 
 def create_access_token(subject: Union[str,Any], expires_delta: int = None) -> str:
     if expires_delta is not None:
-        expires_delta = datetime.utcnow() + expires_delta()
+        expires_delta = datetime.utcnow() + expires_delta
     else:
         expires_delta = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {"exp":expires_delta, "sub":str(subject)}
     encode_jwt = jwt.encode(to_encode,JWT_SECRET_KEY, ALGORITHM)
-    return encoded_jwt
+    return encode_jwt
 
 def create_refresh_token(subject: Union[str,Any],expires_delta: int = None) -> str:
     if expires_delta is not None:
-        expires_delta = datetime.utcnow() + expires_delta()
+        expires_delta = datetime.utcnow() + expires_delta
     else:
         expires_delta = datetime.utcnow() + timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {"exp":expires_delta, "sub":str(subject)}
     encode_jwt = jwt.encode(to_encode,JWT_REFRESH_SECRET_KEY, ALGORITHM)
-    return encoded_jwt
+    return encode_jwt
+
+def decode_token(token: str):
+
+    try:
+        payload = jwt.decode(token,JWT_SECRET_KEY,ALGORITHM)
+        return payload
+    except JWTError:
+        return None
+    
+class JWTBearer(HTTPBearer):
+
+    def __init__(self, auto_error: bool = True):
+        super(JWTBearer, self).__init__(auto_error=auto_error)
+
+    async def __call__(self, request: Request) -> Optional[str]:
+
+        credentials: HTTPAuthorizationCredentials = await super(JWTBearer,self).__call__(request)
+
+
+        if credentials:
+            if not credentials.scheme == "Bearer":
+                raise HTTPException(status_code=403,detail="Invalid authentication scheme.")
+            token = credentials.credentials
+            if not self.verify_jwt(token):
+                raise HTTPException(status_code=403,detail="Invalid token or expired token.")
+            return token
+        else:
+            raise HTTPException(status_code=403,detail="Invalid authorization code")
+    
+    def verify_jwt(self, token: str) -> bool:
+
+        try:
+            payload = decode_token(token)
+            return True 
+        except ExpiresSignatureError:
+            return False
+        except JWTError:
+            return False
+
+        
+def verify_user(session: SessionDep, token: str = Depends(JWTBearer())):
+
+    payload = decode_token(token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_AUTHORIZED,
+            detail="Invalid token or expired token"
+        )
+    
+    user_id = payload.get("sub")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_AUTHORIZED,
+            detail="Invalid token or expired token"
+        )
+    
+    user = session.exec(select(UserDB).where(UserDB.id == user_id)).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
